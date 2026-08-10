@@ -85,6 +85,30 @@ After typing the command, it's recommended to restart the device to make sure th
 
 As soon as the app configuration screen shows "Actively listening to MediaSessions" and the MQTT connection test was successful, you're good to go!
 
+### Extra step for TCL televisions
+
+Android TV devices manufactured by TCL come with a software called _Safety Guard_ which prevents apps from automatically starting background services on boot unless they are manually given a specific authorization. Without this authorization, MediaSession2MQTT will not be able to monitor the MediaSessions after rebooting the device.
+
+There are 3 ways to grant the auto-start authorization to MediaSession2MQTT on TCL TVs:
+
+1. Open the "Safety Guard" application. In the "Permission Shield" section, navigate to "Auto Launch Permission". Switch the "Auto Manager" setting to "Closed" and the MediaSession2MQTT entry in the apps list to "Opened".
+2. If that option is not available, first connect to the device using ADB then type the following command:
+```
+adb shell appops set be.digitalia.mediasession2mqtt APP_AUTO_START allow
+```
+3. In some TCL firmwares, the command may be called `AUTO_START` instead. If the above command fails, try this one instead:
+```
+adb shell appops set be.digitalia.mediasession2mqtt AUTO_START allow
+```
+
+Whichever method you use, you can verify that the authorization has been granted to the app by using the following command:
+
+```
+adb shell appops get be.digitalia.mediasession2mqtt
+```
+
+After rebooting your TCL TV, you should see the session status being updated on your MQTT broker.
+
 ## Home Assistant MQTT Discovery
 
 This app provides an integration for Home Assistant since version 1.1.0. Check the box "Enable Home Assistant integration" in the settings screen and the MQTT Discovery configuration will also be published, allowing Home Assistant to detect and configure MediaSession2MQTT as a new device automatically.
