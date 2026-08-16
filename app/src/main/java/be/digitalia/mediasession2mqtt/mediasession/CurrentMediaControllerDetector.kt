@@ -5,14 +5,16 @@ import android.media.session.MediaController
 import android.media.session.MediaSession
 import android.media.session.MediaSessionManager
 import android.media.session.PlaybackState
+import dev.zacsweers.metro.AppScope
+import dev.zacsweers.metro.Inject
+import dev.zacsweers.metro.SingleIn
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import javax.inject.Inject
-import javax.inject.Singleton
 
-@Singleton
-class CurrentMediaControllerDetector @Inject constructor(private val mediaSessionManager: MediaSessionManager) {
+@Inject
+@SingleIn(AppScope::class)
+class CurrentMediaControllerDetector(private val mediaSessionManager: MediaSessionManager) {
     private val activeSessionsListener = MediaSessionManager.OnActiveSessionsChangedListener { controllers ->
         updateActiveSessions(controllers.orEmpty())
     }

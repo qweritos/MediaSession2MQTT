@@ -16,6 +16,7 @@ import be.digitalia.mediasession2mqtt.mqttmediaplayer.toMediaDurationInMillis
 import be.digitalia.mediasession2mqtt.mqttmediaplayer.toMediaTitle
 import be.digitalia.mediasession2mqtt.service.MediaSessionListenerService
 import be.digitalia.mediasession2mqtt.settings.SettingsProvider
+import dev.zacsweers.metro.Inject
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -31,9 +32,10 @@ import kotlinx.coroutines.flow.fold
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.launch
-import javax.inject.Inject
 
-class MainWorker @Inject constructor(
+@Inject
+class MainWorker(
+    private val context: Context,
     private val currentMediaControllerDetector: CurrentMediaControllerDetector,
     private val settingsProvider: SettingsProvider,
     private val mqttClientFactory: MQTTPublishClient.Factory
@@ -178,7 +180,7 @@ class MainWorker @Inject constructor(
         }
     }
 
-    fun start(context: Context) {
+    fun start() {
         coroutineScope.launch {
             monitorSettings()
         }

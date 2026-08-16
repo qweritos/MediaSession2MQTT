@@ -166,7 +166,7 @@ The Netflix app reports the `playing` state right from the home screen, especial
 ## Used libraries
 
 * [KMQTT](https://github.com/davidepianca98/KMQTT) by Davide Pianca
-* [Dagger](https://dagger.dev/) by The Dagger Authors
+* [Metro](https://github.com/ZacSweers/metro) by Zac Sweers
 * [Kotlin Standard Library](https://github.com/JetBrains/kotlin) by JetBrains s.r.o. and Kotlin Programming Language contributors
 * [kotlinx.coroutines](https://github.com/Kotlin/kotlinx.coroutines) by JetBrains s.r.o.
 

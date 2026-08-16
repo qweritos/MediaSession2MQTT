@@ -8,13 +8,15 @@ import android.preference.PreferenceManager
 import be.digitalia.mediasession2mqtt.R
 import be.digitalia.mediasession2mqtt.mqtt.MQTTConnectionSettings
 import be.digitalia.mediasession2mqtt.mqtt.MQTTQoSLevel
+import dev.zacsweers.metro.AppScope
+import dev.zacsweers.metro.Inject
+import dev.zacsweers.metro.SingleIn
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.distinctUntilChanged
-import javax.inject.Inject
-import javax.inject.Singleton
 
-@Singleton
-class SettingsProvider @Inject constructor(context: Context) {
+@Inject
+@SingleIn(AppScope::class)
+class SettingsProvider(context: Context) {
     init {
         PreferenceManager.setDefaultValues(context, R.xml.settings, false)
     }

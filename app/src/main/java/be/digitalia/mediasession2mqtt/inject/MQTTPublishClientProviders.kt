@@ -2,16 +2,19 @@ package be.digitalia.mediasession2mqtt.inject
 
 import be.digitalia.mediasession2mqtt.mqtt.KMQTTClient
 import be.digitalia.mediasession2mqtt.mqtt.MQTTPublishClient
-import dagger.Module
-import dagger.Provides
+import dev.zacsweers.metro.AppScope
+import dev.zacsweers.metro.BindingContainer
+import dev.zacsweers.metro.ContributesTo
+import dev.zacsweers.metro.Provides
+import dev.zacsweers.metro.SingleIn
 import kotlinx.coroutines.asCoroutineDispatcher
 import java.util.concurrent.Executors
-import javax.inject.Singleton
 
-@Module
-object MQTTPublishClientModule {
+@BindingContainer
+@ContributesTo(AppScope::class)
+object MQTTPublishClientProviders {
     @Provides
-    @Singleton
+    @SingleIn(AppScope::class)
     fun provideMQTTPublishClientFactory(): MQTTPublishClient.Factory {
         // Use a single thread because the KMQTT client is not fully thread safe
         val dispatcher = Executors.newSingleThreadExecutor().asCoroutineDispatcher()

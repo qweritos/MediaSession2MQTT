@@ -1,6 +1,6 @@
 plugins {
     alias(libs.plugins.android.application)
-    alias(libs.plugins.ksp)
+    alias(libs.plugins.metro)
 }
 
 android {
@@ -33,6 +33,7 @@ android {
                         "kotlin-tooling-metadata.json",
                         "kotlin/**",
                         "META-INF/*.version",
+                        "META-INF/dev/zacsweers/metro/**",
                         "META-INF/versions/**",
                         "META-INF/NOTICE.md"
                     )
@@ -57,8 +58,6 @@ android {
 }
 
 dependencies {
-    implementation(libs.dagger)
-    ksp(libs.dagger.compiler)
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.kmqtt.common)
     implementation(libs.kmqtt.client)

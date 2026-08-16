@@ -4,17 +4,16 @@ import android.content.ComponentName
 import android.content.Context
 import android.os.Build
 import android.service.notification.NotificationListenerService
-import be.digitalia.mediasession2mqtt.inject.applicationComponent
+import be.digitalia.mediasession2mqtt.inject.appGraph
 import be.digitalia.mediasession2mqtt.mediasession.CurrentMediaControllerDetector
-import javax.inject.Inject
+import dev.zacsweers.metro.Inject
 
 class MediaSessionListenerService : NotificationListenerService() {
     @Inject
     lateinit var currentMediaControllerDetector: CurrentMediaControllerDetector
 
     override fun onCreate() {
-        // Manual dependencies injection
-        applicationComponent.inject(this)
+        appGraph.inject(this)
         super.onCreate()
     }
 

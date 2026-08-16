@@ -13,12 +13,13 @@ import android.provider.Settings
 import android.widget.Toast
 import be.digitalia.mediasession2mqtt.BuildConfig
 import be.digitalia.mediasession2mqtt.R
-import be.digitalia.mediasession2mqtt.inject.applicationComponent
+import be.digitalia.mediasession2mqtt.inject.appGraph
 import be.digitalia.mediasession2mqtt.mediasession.CurrentMediaControllerDetector
 import be.digitalia.mediasession2mqtt.mqtt.MQTTPublishClient
 import be.digitalia.mediasession2mqtt.mqtt.testConnection
 import be.digitalia.mediasession2mqtt.settings.PreferenceKeys
 import be.digitalia.mediasession2mqtt.settings.SettingsProvider
+import dev.zacsweers.metro.Inject
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -30,17 +31,16 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
-import javax.inject.Inject
 
 @SuppressLint("ExportedPreferenceActivity")
 class SettingsActivity : PreferenceActivity() {
 
     @Inject
-    lateinit var settingsProvider: SettingsProvider
+    private lateinit var settingsProvider: SettingsProvider
     @Inject
-    lateinit var mqttClientFactory: MQTTPublishClient.Factory
+    private lateinit var mqttClientFactory: MQTTPublishClient.Factory
     @Inject
-    lateinit var currentMediaControllerDetector: CurrentMediaControllerDetector
+    private lateinit var currentMediaControllerDetector: CurrentMediaControllerDetector
 
     @OptIn(ExperimentalCoroutinesApi::class)
     private val statusSummary: Flow<CharSequence> by lazy(LazyThreadSafetyMode.NONE) {
@@ -68,8 +68,7 @@ class SettingsActivity : PreferenceActivity() {
 
     @Suppress("OVERRIDE_DEPRECATION")
     override fun onCreate(savedInstanceState: Bundle?) {
-        // Manual dependencies injection
-        applicationComponent.inject(this)
+        appGraph.inject(this)
         super.onCreate(savedInstanceState)
 
         addPreferencesFromResource(R.xml.settings)

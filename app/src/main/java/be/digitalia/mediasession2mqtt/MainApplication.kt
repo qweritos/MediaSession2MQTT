@@ -1,21 +1,19 @@
 package be.digitalia.mediasession2mqtt
 
 import android.app.Application
-import be.digitalia.mediasession2mqtt.inject.ApplicationComponent
-import be.digitalia.mediasession2mqtt.inject.ApplicationComponentProvider
-import be.digitalia.mediasession2mqtt.inject.DaggerApplicationComponent
+import be.digitalia.mediasession2mqtt.inject.AppGraph
+import be.digitalia.mediasession2mqtt.inject.AppGraphProvider
+import dev.zacsweers.metro.createGraphFactory
 
-class MainApplication : Application(), ApplicationComponentProvider {
+class MainApplication : Application(), AppGraphProvider {
 
-    override val applicationComponent: ApplicationComponent by lazy(LazyThreadSafetyMode.NONE) {
-        DaggerApplicationComponent.builder()
-            .applicationContext(this)
-            .build()
+    override val appGraph: AppGraph by lazy(LazyThreadSafetyMode.NONE) {
+        createGraphFactory<AppGraph.Factory>().create(this)
     }
 
     override fun onCreate() {
         super.onCreate()
 
-        applicationComponent.mainWorker.start(this)
+        appGraph.mainWorker.start()
     }
 }

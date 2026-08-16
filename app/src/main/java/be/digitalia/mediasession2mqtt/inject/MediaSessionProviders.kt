@@ -2,11 +2,14 @@ package be.digitalia.mediasession2mqtt.inject
 
 import android.content.Context
 import android.media.session.MediaSessionManager
-import dagger.Module
-import dagger.Provides
+import dev.zacsweers.metro.AppScope
+import dev.zacsweers.metro.BindingContainer
+import dev.zacsweers.metro.ContributesTo
+import dev.zacsweers.metro.Provides
 
-@Module
-object MediaSessionModule {
+@BindingContainer
+@ContributesTo(AppScope::class)
+object MediaSessionProviders {
     @Provides
     fun provideMediaSessionManager(applicationContext: Context): MediaSessionManager {
         return applicationContext.getSystemService(Context.MEDIA_SESSION_SERVICE) as MediaSessionManager
