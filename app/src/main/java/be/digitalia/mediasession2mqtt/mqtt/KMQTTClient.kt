@@ -18,14 +18,6 @@ class KMQTTClient(
 
     private var currentClient: MQTTClient? = null
 
-    private fun getConnectedClient(forceNewInstance: Boolean): MQTTClient {
-        // Create the client lazily (simple implementation for single thread)
-        val client = currentClient.takeUnless { forceNewInstance }
-            ?: createClient().also { currentClient = it }
-        client.step()
-        return client
-    }
-
     private fun createClient(): MQTTClient {
         val mqttVersion = when (connectionSettings.protocolVersion) {
             MQTTConnectionSettings.ProtocolVersion.MQTT3_1_1 -> MQTTVersion.MQTT3_1_1
@@ -43,36 +35,53 @@ class KMQTTClient(
             webSocket = null,
             userName = username,
             password = password
-        ) { }
+        ) { }.also {
+            currentClient = it
+        }
     }
 
     override suspend fun connect() {
         withContext(dispatcher) {
-            getConnectedClient(false)
+            if (currentClient != null) {
+                disconnectQuietly()
+            }
+            createClient().step()
         }
     }
 
     override suspend fun connectAndPublish(qosLevel: MQTTQoSLevel, topic: String, payload: String) {
         withContext(dispatcher) {
-            val client = try {
-                getConnectedClient(false)
-            } catch (e: Exception) {
-                if (e is CancellationException) {
+            var client = currentClient?.takeIf { it.isRunning() }
+            if (client != null) {
+                // If already connected, try to publish and retry on error
+                try {
+                    client.step()
+                    ensureActive()
+                    client.publishAndStep(qosLevel, topic, payload)
+                    return@withContext
+                } catch (e: CancellationException) {
                     throw e
+                } catch (_: Exception) {
+                    // At that point we are already disconnected, no need to call disconnect()
                 }
-                // At that point we are already disconnected, no need to call disconnect()
-                // Try to auto-reconnect from scratch
-                getConnectedClient(true)
             }
+
+            // Not connected yet or disconnected: connect from scratch and publish
+            client = createClient()
             ensureActive()
-            client.publish(
-                true,
-                Qos.entries[qosLevel.ordinal],
-                topic,
-                payload.encodeToByteArray().toUByteArray()
-            )
-            client.step()
+            client.publishAndStep(qosLevel, topic, payload)
         }
+    }
+
+    private fun MQTTClient.publishAndStep(qosLevel: MQTTQoSLevel, topic: String, payload: String) {
+        publish(
+            true,
+            Qos.entries[qosLevel.ordinal],
+            topic,
+            payload.encodeToByteArray().toUByteArray()
+        )
+        step()
+        check(isRunning()) { "MQTT connection lost while publishing" }
     }
 
     override suspend fun disconnectQuietly() {

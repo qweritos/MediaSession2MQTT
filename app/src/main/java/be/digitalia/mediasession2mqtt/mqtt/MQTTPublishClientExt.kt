@@ -21,10 +21,9 @@ suspend fun MQTTPublishClient.tryConnectAndPublish(
     return try {
         connectAndPublish(qosLevel, topic, payload)
         true
-    } catch (e: Exception) {
-        if (e is CancellationException) {
-            throw e
-        }
+    } catch (e: CancellationException) {
+        throw e
+    } catch (_: Exception) {
         false
     }
 }
