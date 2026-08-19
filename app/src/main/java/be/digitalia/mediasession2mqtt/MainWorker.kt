@@ -25,6 +25,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
@@ -54,7 +55,7 @@ class MainWorker(
                 null -> flowOf(MQTTPlaybackState.Idle)
                 else -> mediaController.playbackStateFlow.mapNotNull { it.toMQTTPlaybackStateOrNull() }
             }
-        }
+        }.conflate()
 
     @OptIn(ExperimentalCoroutinesApi::class)
     private val mediaMetadataFlow: Flow<MQTTMediaMetadata> =
@@ -69,7 +70,7 @@ class MainWorker(
                         )
                     }
             }
-        }
+        }.conflate()
 
     private suspend fun monitorSettings() {
         settingsProvider.connectionSettings.collectLatest { connectionSettings ->
@@ -96,7 +97,7 @@ class MainWorker(
         qosLevel: MQTTQoSLevel,
         deviceId: Int
     ) {
-        settingsProvider.isHassIntegrationEnabled.collect { isEnabled ->
+        settingsProvider.isHassIntegrationEnabled.collectLatest { isEnabled ->
             if (isEnabled) {
                 for (sensor in HASS_SENSORS) {
                     val discoveryConfig = createSensorDiscoveryConfiguration(

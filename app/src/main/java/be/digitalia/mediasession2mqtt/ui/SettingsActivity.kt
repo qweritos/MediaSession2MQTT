@@ -26,6 +26,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
@@ -61,7 +62,7 @@ class SettingsActivity : PreferenceActivity() {
                     listeningStatus + currentSessionSummary
                 }
             }
-        }
+        }.conflate()
     }
 
     private var currentCoroutineScope: CoroutineScope? = null
