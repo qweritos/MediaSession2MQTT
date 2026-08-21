@@ -25,8 +25,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.conflate
+import kotlinx.coroutines.flow.buffer
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
@@ -62,7 +63,7 @@ class SettingsActivity : PreferenceActivity() {
                     listeningStatus + currentSessionSummary
                 }
             }
-        }.conflate()
+        }.buffer(Channel.RENDEZVOUS)
     }
 
     private var currentCoroutineScope: CoroutineScope? = null

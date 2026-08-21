@@ -21,11 +21,12 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.buffer
 import kotlinx.coroutines.flow.collectLatest
-import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
@@ -55,7 +56,7 @@ class MainWorker(
                 null -> flowOf(MQTTPlaybackState.Idle)
                 else -> mediaController.playbackStateFlow.mapNotNull { it.toMQTTPlaybackStateOrNull() }
             }
-        }.conflate()
+        }.buffer(Channel.RENDEZVOUS)
 
     @OptIn(ExperimentalCoroutinesApi::class)
     private val mediaMetadataFlow: Flow<MQTTMediaMetadata> =
@@ -70,7 +71,7 @@ class MainWorker(
                         )
                     }
             }
-        }.conflate()
+        }.buffer(Channel.RENDEZVOUS)
 
     private suspend fun monitorSettings() {
         settingsProvider.connectionSettings.collectLatest { connectionSettings ->
