@@ -9,16 +9,25 @@ import android.media.session.PlaybackState
  * Note: the buffering state is voluntarily ignored and not considered equal to playing
  * because some applications pre-buffer playback even before the user requests playing the content.
  */
-fun PlaybackState?.toMQTTPlaybackStateOrNull(): MQTTPlaybackState? {
-    if (this == null) {
-        return null
+fun PlaybackState.toMQTTPlaybackStateOrNull(): MQTTPlaybackState? = when (state) {
+    PlaybackState.STATE_NONE, PlaybackState.STATE_STOPPED, PlaybackState.STATE_ERROR -> MQTTPlaybackState.Idle
+    PlaybackState.STATE_PLAYING -> MQTTPlaybackState.Playing(position)
+    PlaybackState.STATE_PAUSED -> MQTTPlaybackState.Paused(position)
+    else -> null
+}
+
+/**
+ * Calculate the time difference between two playback positions by taking the position update time into account.
+ * If any of the states is not playing, return 0.
+ * The calculation assumes that old and new playback speeds are the same and a change of playback speed
+ * will create an artificial drift.
+ */
+fun getPlayingPositionDrift(old: PlaybackState?, new: PlaybackState?): Long {
+    if (old?.state != PlaybackState.STATE_PLAYING || new?.state != PlaybackState.STATE_PLAYING) {
+        return 0L
     }
-    return when (state) {
-        PlaybackState.STATE_NONE, PlaybackState.STATE_STOPPED, PlaybackState.STATE_ERROR -> MQTTPlaybackState.Idle
-        PlaybackState.STATE_PLAYING -> MQTTPlaybackState.Playing(position.toString())
-        PlaybackState.STATE_PAUSED -> MQTTPlaybackState.Paused(position.toString())
-        else -> null
-    }
+    return new.position - old.position -
+            ((new.lastPositionUpdateTime - old.lastPositionUpdateTime) * new.playbackSpeed).toLong()
 }
 
 /**

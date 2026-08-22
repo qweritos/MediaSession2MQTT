@@ -1,6 +1,7 @@
 package be.digitalia.mediasession2mqtt
 
 import android.content.Context
+import android.media.session.PlaybackState
 import be.digitalia.mediasession2mqtt.homeassistant.Sensor
 import be.digitalia.mediasession2mqtt.homeassistant.createSensorDiscoveryConfiguration
 import be.digitalia.mediasession2mqtt.mediasession.CurrentMediaControllerDetector
@@ -11,6 +12,7 @@ import be.digitalia.mediasession2mqtt.mqtt.MQTTQoSLevel
 import be.digitalia.mediasession2mqtt.mqtt.tryConnectAndPublish
 import be.digitalia.mediasession2mqtt.mqttmediaplayer.MQTTMediaMetadata
 import be.digitalia.mediasession2mqtt.mqttmediaplayer.MQTTPlaybackState
+import be.digitalia.mediasession2mqtt.mqttmediaplayer.getPlayingPositionDrift
 import be.digitalia.mediasession2mqtt.mqttmediaplayer.toMQTTPlaybackStateOrNull
 import be.digitalia.mediasession2mqtt.mqttmediaplayer.toMediaDurationInMillis
 import be.digitalia.mediasession2mqtt.mqttmediaplayer.toMediaTitle
@@ -34,6 +36,7 @@ import kotlinx.coroutines.flow.fold
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.launch
+import kotlin.math.abs
 
 @Inject
 class MainWorker(
@@ -54,7 +57,14 @@ class MainWorker(
         currentMediaControllerDetector.currentMediaController.flatMapLatest { mediaController ->
             when (mediaController) {
                 null -> flowOf(MQTTPlaybackState.Idle)
-                else -> mediaController.playbackStateFlow.mapNotNull { it.toMQTTPlaybackStateOrNull() }
+                else -> mediaController.playbackStateFlow
+                    .distinctUntilChanged { old, new ->
+                        // Only report playback state changes or drifting positions while playing
+                        val oldState = old?.state ?: PlaybackState.STATE_NONE
+                        val newState = new?.state ?: PlaybackState.STATE_NONE
+                        oldState == newState && abs(getPlayingPositionDrift(old, new)) < POSITION_DRIFT_THRESHOLD_MILLIS
+                    }
+                    .mapNotNull { it?.toMQTTPlaybackStateOrNull() }
             }
         }.buffer(Channel.RENDEZVOUS)
 
@@ -149,7 +159,7 @@ class MainWorker(
                 client.tryConnectAndPublish(
                     qosLevel,
                     "$ROOT_TOPIC/$deviceId/$PLAYBACK_POSITION_SUB_TOPIC",
-                    positionInMillis
+                    if (positionInMillis < 0) "" else positionInMillis.toString()
                 )
             }
             playbackState
@@ -198,6 +208,7 @@ class MainWorker(
     }
 
     companion object {
+        private const val POSITION_DRIFT_THRESHOLD_MILLIS = 1000L
         private const val AUTO_REBIND_SERVICE_DELAY_MILLIS = 2000L
 
         private const val ROOT_TOPIC = "mediaSession"
