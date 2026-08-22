@@ -20,6 +20,7 @@ import be.digitalia.mediasession2mqtt.mqtt.testConnection
 import be.digitalia.mediasession2mqtt.settings.PreferenceKeys
 import be.digitalia.mediasession2mqtt.settings.SettingsProvider
 import dev.zacsweers.metro.Inject
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -133,6 +134,8 @@ class SettingsActivity : PreferenceActivity() {
                     try {
                         client.testConnection()
                         getString(R.string.connection_test_success)
+                    } catch (e: CancellationException) {
+                        throw e
                     } catch (e: Exception) {
                         val errorMessage = e.message
                         if (errorMessage.isNullOrEmpty()) {

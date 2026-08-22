@@ -1,5 +1,6 @@
 package be.digitalia.mediasession2mqtt.mqtt
 
+import be.digitalia.mediasession2mqtt.BuildConfig
 import io.github.davidepianca98.MQTTClient
 import io.github.davidepianca98.mqtt.MQTTVersion
 import io.github.davidepianca98.mqtt.packets.Qos
@@ -34,7 +35,10 @@ class KMQTTClient(
             keepAlive = 0,
             webSocket = null,
             userName = username,
-            password = password
+            password = password,
+            connackTimeout = 10,
+            connectTimeout = 10,
+            debugLog = BuildConfig.DEBUG,
         ) { }.also {
             currentClient = it
         }
@@ -99,9 +103,9 @@ class KMQTTClient(
         }
     }
 
-    class Factory(private val dispatcher: CoroutineDispatcher) : MQTTPublishClient.Factory {
+    class Factory(private val dispatcherProvider: () -> CoroutineDispatcher) : MQTTPublishClient.Factory {
         override fun create(connectionSettings: MQTTConnectionSettings): MQTTPublishClient {
-            return KMQTTClient(connectionSettings, dispatcher)
+            return KMQTTClient(connectionSettings, dispatcherProvider())
         }
     }
 }

@@ -16,8 +16,9 @@ object MQTTPublishClientProviders {
     @Provides
     @SingleIn(AppScope::class)
     fun provideMQTTPublishClientFactory(): MQTTPublishClient.Factory {
-        // Use a single thread because the KMQTT client is not fully thread safe
-        val dispatcher = Executors.newSingleThreadExecutor().asCoroutineDispatcher()
-        return KMQTTClient.Factory(dispatcher)
+        // Use a single thread per client because the KMQTT client is not fully thread safe
+        return KMQTTClient.Factory(
+            dispatcherProvider = { Executors.newSingleThreadExecutor().asCoroutineDispatcher() }
+        )
     }
 }
