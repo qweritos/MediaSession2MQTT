@@ -3,6 +3,7 @@ package be.digitalia.mediasession2mqtt
 import android.content.Context
 import android.media.session.PlaybackState
 import be.digitalia.mediasession2mqtt.homeassistant.Sensor
+import be.digitalia.mediasession2mqtt.homeassistant.createImageDiscoveryConfiguration
 import be.digitalia.mediasession2mqtt.homeassistant.createSensorDiscoveryConfiguration
 import be.digitalia.mediasession2mqtt.mediasession.CurrentMediaControllerDetector
 import be.digitalia.mediasession2mqtt.mediasession.metadataFlow
@@ -13,7 +14,9 @@ import be.digitalia.mediasession2mqtt.mqtt.tryConnectAndPublish
 import be.digitalia.mediasession2mqtt.mqttmediaplayer.MQTTMediaMetadata
 import be.digitalia.mediasession2mqtt.mqttmediaplayer.MQTTPlaybackState
 import be.digitalia.mediasession2mqtt.mqttmediaplayer.getPlayingPositionDrift
+import be.digitalia.mediasession2mqtt.mqttmediaplayer.resolveArtworkJpeg
 import be.digitalia.mediasession2mqtt.mqttmediaplayer.toMQTTPlaybackStateOrNull
+import be.digitalia.mediasession2mqtt.mqttmediaplayer.toArtworkCacheKey
 import be.digitalia.mediasession2mqtt.mqttmediaplayer.toMediaDurationInMillis
 import be.digitalia.mediasession2mqtt.mqttmediaplayer.toMediaTitle
 import be.digitalia.mediasession2mqtt.service.MediaSessionListenerService
@@ -30,10 +33,12 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.buffer
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.distinctUntilChangedBy
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.fold
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.launch
 import kotlin.math.abs
@@ -83,6 +88,26 @@ class MainWorker(
             }
         }.buffer(Channel.RENDEZVOUS)
 
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private val mediaArtworkFlow: Flow<ByteArray> =
+        currentMediaControllerDetector.currentMediaController.flatMapLatest { mediaController ->
+            when (mediaController) {
+                null -> flowOf(ByteArray(0))
+                else -> mediaController.metadataFlow
+                    .map { metadata ->
+                        Triple(
+                            mediaController.packageName,
+                            metadata.toArtworkCacheKey(mediaController.packageName),
+                            metadata
+                        )
+                    }
+                    .distinctUntilChangedBy { (_, cacheKey, _) -> cacheKey }
+                    .mapLatest { (_, _, metadata) ->
+                        resolveArtworkJpeg(metadata)
+                    }
+            }
+        }.buffer(Channel.RENDEZVOUS)
+
     private suspend fun monitorSettings() {
         settingsProvider.connectionSettings.collectLatest { connectionSettings ->
             if (connectionSettings != null) {
@@ -94,6 +119,7 @@ class MainWorker(
                             launch { publishApplicationId(client, qosLevel, deviceId) }
                             launch { publishPlaybackState(client, qosLevel, deviceId) }
                             launch { publishMediaMetadata(client, qosLevel, deviceId) }
+                            launch { publishMediaArtwork(client, qosLevel, deviceId) }
                         }
                     }
                 } finally {
@@ -122,6 +148,16 @@ class MainWorker(
                         discoveryConfig
                     )
                 }
+
+                val artworkTopic = "$ROOT_TOPIC/$deviceId/$MEDIA_ARTWORK_SUB_TOPIC"
+                client.tryConnectAndPublish(
+                    qosLevel,
+                    "$HASS_ROOT_TOPIC/image/mediasession_${deviceId}_media_artwork/config",
+                    createImageDiscoveryConfiguration(
+                        deviceId = deviceId,
+                        imageTopic = artworkTopic
+                    )
+                )
             }
         }
     }
@@ -192,6 +228,23 @@ class MainWorker(
         }
     }
 
+    private suspend fun publishMediaArtwork(
+        client: MQTTPublishClient,
+        qosLevel: MQTTQoSLevel,
+        deviceId: Int
+    ) {
+        mediaArtworkFlow.fold(null as ByteArray?) { previousArtwork, artwork ->
+            if (previousArtwork == null || !previousArtwork.contentEquals(artwork)) {
+                client.tryConnectAndPublish(
+                    qosLevel,
+                    "$ROOT_TOPIC/$deviceId/$MEDIA_ARTWORK_SUB_TOPIC",
+                    artwork
+                )
+            }
+            artwork
+        }
+    }
+
     fun start() {
         coroutineScope.launch {
             monitorSettings()
@@ -217,6 +270,7 @@ class MainWorker(
         private const val PLAYBACK_POSITION_SUB_TOPIC = "playbackPosition"
         private const val MEDIA_TITLE_SUB_TOPIC = "mediaTitle"
         private const val MEDIA_DURATION_SUB_TOPIC = "mediaDuration"
+        private const val MEDIA_ARTWORK_SUB_TOPIC = "mediaArtwork"
 
         private const val HASS_ROOT_TOPIC = "homeassistant"
         private val HASS_SENSORS = listOf(
