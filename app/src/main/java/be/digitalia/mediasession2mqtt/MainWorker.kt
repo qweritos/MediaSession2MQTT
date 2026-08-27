@@ -56,6 +56,7 @@ import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.launch
+import org.json.JSONObject
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
@@ -69,6 +70,9 @@ class MainWorker(
     private val coroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
     private val volumeRefreshFlow = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+    private val mediaStateRefreshChannel = Channel<Unit>(Channel.UNLIMITED)
+    private var mediaControlEnabled = false
+    private var lastPlaybackState: MQTTPlaybackState = MQTTPlaybackState.Idle
 
     private val localVolumeChangeFlow: Flow<Int> = callbackFlow {
         val observer = object : ContentObserver(Handler(Looper.getMainLooper())) {
@@ -164,6 +168,7 @@ class MainWorker(
             if (connectionSettings != null) {
                 val client = mqttClientFactory.create(connectionSettings)
                 val subscribeClient = mqttClientFactory.create(connectionSettings)
+                val stateClient = mqttClientFactory.create(connectionSettings)
                 try {
                     settingsProvider.messageSettings.collectLatest { (qosLevel, deviceId) ->
                         coroutineScope {
@@ -184,11 +189,13 @@ class MainWorker(
                             launch { publishMediaControlEnabled(client, qosLevel, deviceId) }
                             launch { publishMediaMetadata(client, qosLevel, deviceId) }
                             launch { publishMediaArtwork(client, qosLevel, deviceId) }
+                            launch { publishMediaStateSnapshots(stateClient, qosLevel, deviceId) }
                         }
                     }
                 } finally {
                     client.disconnectQuietly()
                     subscribeClient.disconnectQuietly()
+                    stateClient.disconnectQuietly()
                 }
             }
         }
@@ -341,6 +348,7 @@ class MainWorker(
         deviceId: Int
     ) {
         applicationIdFlow.collect { applicationId ->
+            requestMediaStateSnapshot()
             client.tryConnectAndPublish(
                 qosLevel,
                 "$ROOT_TOPIC/$deviceId/$APPLICATION_ID_SUB_TOPIC",
@@ -355,6 +363,8 @@ class MainWorker(
         deviceId: Int
     ) {
         playbackStateFlow.fold(null as MQTTPlaybackState?) { previousPlaybackState, playbackState ->
+            lastPlaybackState = playbackState
+            requestMediaStateSnapshot()
             val name = playbackState.name
             if (previousPlaybackState?.name != name) {
                 client.tryConnectAndPublish(
@@ -381,6 +391,7 @@ class MainWorker(
         deviceId: Int
     ) {
         playbackActionsFlow.collect { actions ->
+            requestMediaStateSnapshot()
             client.tryConnectAndPublish(
                 qosLevel,
                 "$ROOT_TOPIC/$deviceId/$PLAYBACK_ACTIONS_SUB_TOPIC",
@@ -403,18 +414,8 @@ class MainWorker(
                 currentMediaControllerDetector.currentMediaController.value?.playbackInfo
             }
         ).collect { info ->
-            val volumeLevel = if (info != null && info.playbackType == MediaController.PlaybackInfo.PLAYBACK_TYPE_LOCAL) {
-                val maxVolume = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
-                if (maxVolume > 0) {
-                    audioManager.getStreamVolume(AudioManager.STREAM_MUSIC).toFloat() / maxVolume
-                } else {
-                    null
-                }
-            } else if (info != null && info.maxVolume > 0) {
-                info.currentVolume.toFloat() / info.maxVolume
-            } else {
-                null
-            }
+            requestMediaStateSnapshot()
+            val volumeLevel = getVolumeLevel(info)
             client.tryConnectAndPublish(
                 qosLevel,
                 "$ROOT_TOPIC/$deviceId/$VOLUME_LEVEL_SUB_TOPIC",
@@ -423,23 +424,9 @@ class MainWorker(
             client.tryConnectAndPublish(
                 qosLevel,
                 "$ROOT_TOPIC/$deviceId/$VOLUME_CONTROL_SUB_TOPIC",
-                when (info?.volumeControl) {
-                    VolumeProvider.VOLUME_CONTROL_ABSOLUTE -> "absolute"
-                    VolumeProvider.VOLUME_CONTROL_RELATIVE -> "relative"
-                    VolumeProvider.VOLUME_CONTROL_FIXED -> "fixed"
-                    else -> ""
-                }
+                getVolumeControl(info)
             )
-            val muted = if (info != null && info.playbackType == MediaController.PlaybackInfo.PLAYBACK_TYPE_LOCAL) {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                    audioManager.isStreamMute(AudioManager.STREAM_MUSIC) ||
-                        audioManager.getStreamVolume(AudioManager.STREAM_MUSIC) == 0
-                } else {
-                    audioManager.getStreamVolume(AudioManager.STREAM_MUSIC) == 0
-                }
-            } else {
-                info?.let { it.currentVolume == 0 }
-            }
+            val muted = getVolumeMuted(info)
             client.tryConnectAndPublish(
                 qosLevel,
                 "$ROOT_TOPIC/$deviceId/$VOLUME_MUTED_SUB_TOPIC",
@@ -454,6 +441,8 @@ class MainWorker(
         deviceId: Int
     ) {
         settingsProvider.isMediaControlEnabled.collectLatest { enabled ->
+            mediaControlEnabled = enabled
+            requestMediaStateSnapshot()
             client.tryConnectAndPublish(
                 qosLevel,
                 "$ROOT_TOPIC/$deviceId/$MEDIA_CONTROL_ENABLED_SUB_TOPIC",
@@ -468,6 +457,7 @@ class MainWorker(
         deviceId: Int
     ) {
         mediaMetadataFlow.fold(null as MQTTMediaMetadata?) { previousMediaMetadata, mediaMetadata ->
+            requestMediaStateSnapshot()
             val title = mediaMetadata.title
             if (previousMediaMetadata?.title != title) {
                 client.tryConnectAndPublish(
@@ -486,6 +476,91 @@ class MainWorker(
             }
             mediaMetadata
         }
+    }
+
+    private fun requestMediaStateSnapshot() {
+        mediaStateRefreshChannel.trySend(Unit)
+    }
+
+    private suspend fun publishMediaStateSnapshots(
+        client: MQTTPublishClient,
+        qosLevel: MQTTQoSLevel,
+        deviceId: Int
+    ) {
+        publishMediaStateSnapshot(client, qosLevel, deviceId)
+        for (ignored in mediaStateRefreshChannel) {
+            publishMediaStateSnapshot(client, qosLevel, deviceId)
+        }
+    }
+
+    private suspend fun publishMediaStateSnapshot(
+        client: MQTTPublishClient,
+        qosLevel: MQTTQoSLevel,
+        deviceId: Int
+    ) {
+        client.tryConnectAndPublish(
+            qosLevel,
+            "$ROOT_TOPIC/$deviceId/$STATE_SUB_TOPIC",
+            createMediaStateSnapshot()
+        )
+    }
+
+    private fun createMediaStateSnapshot(): String {
+        val controller = currentMediaControllerDetector.currentMediaController.value
+        val rawPlaybackState = controller?.playbackState
+        val playbackState = rawPlaybackState?.toMQTTPlaybackStateOrNull() ?: lastPlaybackState
+        val metadata = controller?.metadata
+        val info = controller?.playbackInfo
+        val duration = metadata.toMediaDurationInMillis().toLongOrNull()
+
+        return JSONObject().apply {
+            put("playbackState", playbackState.name)
+            put(
+                "playbackPosition",
+                if (playbackState.positionInMillis >= 0) playbackState.positionInMillis else JSONObject.NULL
+            )
+            put("playbackActions", rawPlaybackState?.actions ?: 0L)
+            put("applicationId", controller?.packageName.orEmpty())
+            put("mediaTitle", metadata.toMediaTitle())
+            put("mediaDuration", duration ?: JSONObject.NULL)
+            put("volumeLevel", getVolumeLevel(info) ?: JSONObject.NULL)
+            put("volumeControl", getVolumeControl(info))
+            put("volumeMuted", getVolumeMuted(info) ?: JSONObject.NULL)
+            put("mediaControlEnabled", mediaControlEnabled)
+        }.toString()
+    }
+
+    private fun getVolumeLevel(info: MediaController.PlaybackInfo?): Float? {
+        if (info == null) return null
+        if (info.playbackType == MediaController.PlaybackInfo.PLAYBACK_TYPE_LOCAL) {
+            val maxVolume = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+            return if (maxVolume > 0) {
+                audioManager.getStreamVolume(AudioManager.STREAM_MUSIC).toFloat() / maxVolume
+            } else {
+                null
+            }
+        }
+        return if (info.maxVolume > 0) info.currentVolume.toFloat() / info.maxVolume else null
+    }
+
+    private fun getVolumeControl(info: MediaController.PlaybackInfo?): String = when (info?.volumeControl) {
+        VolumeProvider.VOLUME_CONTROL_ABSOLUTE -> "absolute"
+        VolumeProvider.VOLUME_CONTROL_RELATIVE -> "relative"
+        VolumeProvider.VOLUME_CONTROL_FIXED -> "fixed"
+        else -> ""
+    }
+
+    private fun getVolumeMuted(info: MediaController.PlaybackInfo?): Boolean? {
+        if (info == null) return null
+        if (info.playbackType == MediaController.PlaybackInfo.PLAYBACK_TYPE_LOCAL) {
+            val isZero = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC) == 0
+            return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                audioManager.isStreamMute(AudioManager.STREAM_MUSIC) || isZero
+            } else {
+                isZero
+            }
+        }
+        return info.currentVolume == 0
     }
 
     private suspend fun publishMediaArtwork(
@@ -526,6 +601,7 @@ class MainWorker(
         private const val MQTT_COMMAND_RECONNECT_DELAY_MILLIS = 2000L
 
         private const val ROOT_TOPIC = "mediaSession"
+        private const val STATE_SUB_TOPIC = "state"
         private const val APPLICATION_ID_SUB_TOPIC = "applicationId"
         private const val PLAYBACK_STATE_SUB_TOPIC = "playbackState"
         private const val PLAYBACK_POSITION_SUB_TOPIC = "playbackPosition"

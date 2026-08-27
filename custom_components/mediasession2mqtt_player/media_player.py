@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 import hashlib
+import json
 from typing import Any
 
 import voluptuous as vol
@@ -78,12 +79,22 @@ class MediaSession2MQTTPlayer(MediaPlayerEntity):
         self._volume_control: str | None = None
         self._volume_muted: bool | None = None
         self._media_control_enabled = False
+        self._using_aggregate_state = False
         self._artwork_bytes: bytes | None = None
         self._artwork_hash: str | None = None
 
     async def async_added_to_hass(self) -> None:
         """Subscribe directly to MediaSession2MQTT state topics."""
         await super().async_added_to_hass()
+        self.async_on_remove(
+            await mqtt.async_subscribe(
+                self.hass,
+                f"{self._root_topic}/state",
+                self._set_state_snapshot,
+                qos=0,
+            )
+        )
+
         text_topics = {
             "playbackState": self._set_playback_state,
             "playbackPosition": self._set_playback_position,
@@ -121,12 +132,61 @@ class MediaSession2MQTTPlayer(MediaPlayerEntity):
         return str(msg.payload).strip()
 
     @callback
+    def _set_state_snapshot(self, msg: Any) -> None:
+        try:
+            data = json.loads(self._payload(msg))
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return
+        if not isinstance(data, dict):
+            return
+
+        previous_state = self._playback_state
+        previous_position = self._playback_position
+
+        playback_state = data.get("playbackState")
+        self._playback_state = playback_state if isinstance(playback_state, str) and playback_state else None
+
+        position = data.get("playbackPosition")
+        self._playback_position = float(position) / 1000.0 if isinstance(position, (int, float)) else None
+        if self._playback_state != previous_state or self._playback_position != previous_position:
+            self._playback_position_updated_at = dt_util.utcnow()
+
+        actions = data.get("playbackActions")
+        self._playback_actions = int(actions) if isinstance(actions, (int, float)) else 0
+
+        application_id = data.get("applicationId")
+        self._application_id = application_id if isinstance(application_id, str) and application_id else None
+
+        media_title = data.get("mediaTitle")
+        self._media_title = media_title if isinstance(media_title, str) and media_title else None
+
+        duration = data.get("mediaDuration")
+        self._media_duration = float(duration) / 1000.0 if isinstance(duration, (int, float)) else None
+
+        volume = data.get("volumeLevel")
+        self._volume_level = max(0.0, min(1.0, float(volume))) if isinstance(volume, (int, float)) else None
+
+        volume_control = data.get("volumeControl")
+        self._volume_control = volume_control if isinstance(volume_control, str) and volume_control else None
+
+        muted = data.get("volumeMuted")
+        self._volume_muted = muted if isinstance(muted, bool) else None
+        self._media_control_enabled = data.get("mediaControlEnabled") is True
+
+        self._using_aggregate_state = True
+        self.async_write_ha_state()
+
+    @callback
     def _set_playback_state(self, msg: Any) -> None:
+        if self._using_aggregate_state:
+            return
         self._playback_state = self._payload(msg) or None
         self.async_write_ha_state()
 
     @callback
     def _set_playback_position(self, msg: Any) -> None:
+        if self._using_aggregate_state:
+            return
         value = self._payload(msg)
         try:
             self._playback_position = float(value) / 1000.0 if value else None
@@ -137,6 +197,8 @@ class MediaSession2MQTTPlayer(MediaPlayerEntity):
 
     @callback
     def _set_playback_actions(self, msg: Any) -> None:
+        if self._using_aggregate_state:
+            return
         try:
             self._playback_actions = int(self._payload(msg))
         except ValueError:
@@ -145,16 +207,22 @@ class MediaSession2MQTTPlayer(MediaPlayerEntity):
 
     @callback
     def _set_application_id(self, msg: Any) -> None:
+        if self._using_aggregate_state:
+            return
         self._application_id = self._payload(msg) or None
         self.async_write_ha_state()
 
     @callback
     def _set_media_title(self, msg: Any) -> None:
+        if self._using_aggregate_state:
+            return
         self._media_title = self._payload(msg) or None
         self.async_write_ha_state()
 
     @callback
     def _set_media_duration(self, msg: Any) -> None:
+        if self._using_aggregate_state:
+            return
         value = self._payload(msg)
         try:
             self._media_duration = float(value) / 1000.0 if value else None
@@ -164,6 +232,8 @@ class MediaSession2MQTTPlayer(MediaPlayerEntity):
 
     @callback
     def _set_volume_level(self, msg: Any) -> None:
+        if self._using_aggregate_state:
+            return
         value = self._payload(msg)
         try:
             self._volume_level = max(0.0, min(1.0, float(value))) if value else None
@@ -173,17 +243,23 @@ class MediaSession2MQTTPlayer(MediaPlayerEntity):
 
     @callback
     def _set_volume_control(self, msg: Any) -> None:
+        if self._using_aggregate_state:
+            return
         self._volume_control = self._payload(msg) or None
         self.async_write_ha_state()
 
     @callback
     def _set_volume_muted(self, msg: Any) -> None:
+        if self._using_aggregate_state:
+            return
         value = self._payload(msg).lower()
         self._volume_muted = value == "true" if value in ("true", "false") else None
         self.async_write_ha_state()
 
     @callback
     def _set_media_control_enabled(self, msg: Any) -> None:
+        if self._using_aggregate_state:
+            return
         self._media_control_enabled = self._payload(msg).lower() == "true"
         self.async_write_ha_state()
 

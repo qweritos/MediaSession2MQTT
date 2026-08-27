@@ -138,6 +138,12 @@ The helper exposes only controls reported as supported by the active Android Med
 
 The application publishes MediaSession state and listens for non-retained MQTT media-control commands. The MQTT connection is kept open as long as possible and is automatically re-established when necessary.
 
+### mediaSession/{deviceId}/state
+
+An atomic JSON snapshot of the current scalar media state. It includes playback state and position, supported playback actions, application id, title, duration, volume level/control/mute state, and whether media control is enabled.
+
+The snapshot is published immediately whenever one of those state sources changes. There is no debounce. The individual state topics below remain available for backward compatibility.
+
 The application publishes the following topics to the MQTT broker (replace `{deviceId}` with your actual device id which is `1` by default):
 
 ### mediaSession/{deviceId}/playbackState
