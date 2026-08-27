@@ -138,7 +138,7 @@ The helper exposes only controls reported as supported by the active Android Med
 
 The application publishes MediaSession state and listens for non-retained MQTT media-control commands. The MQTT connection is kept open as long as possible and is automatically re-established when necessary.
 
-The application publishes the following 3 topics to the MQTT broker (replace `{deviceId}` with your actual device id which is `1` by default):
+The application publishes the following topics to the MQTT broker (replace `{deviceId}` with your actual device id which is `1` by default):
 
 ### mediaSession/{deviceId}/playbackState
 The current playback state of the player connected to the current MediaSession, if any. Can be one of the following values: `idle`, `playing`, `paused`.
@@ -211,6 +211,12 @@ Publish a non-retained message to one of these command topics:
 - `volume` — payload is a normalized volume from `0.0` to `1.0`
 - `volumeUp`, `volumeDown`
 - `mute`, `unmute`
+
+### mediaSession/{deviceId}/mediaArtwork
+
+The artwork of the currently playing media as raw JPEG bytes. The payload is retained and is suitable for Home Assistant's MQTT `image` integration. When Home Assistant integration is enabled, a `Media Artwork` image entity is created automatically through MQTT discovery.
+
+The app first uses artwork supplied directly by the active Android MediaSession. If an application only exposes an HTTP(S) artwork URI, it downloads and normalizes that image to JPEG before publishing it.
 
 ## A note about the Netflix app
 

@@ -5,6 +5,7 @@ package be.digitalia.mediasession2mqtt.ui
 import android.annotation.SuppressLint
 import android.content.ActivityNotFoundException
 import android.content.Intent
+import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Bundle
 import android.os.Build
@@ -18,8 +19,10 @@ import be.digitalia.mediasession2mqtt.BuildConfig
 import be.digitalia.mediasession2mqtt.R
 import be.digitalia.mediasession2mqtt.inject.appGraph
 import be.digitalia.mediasession2mqtt.mediasession.CurrentMediaControllerDetector
+import be.digitalia.mediasession2mqtt.mediasession.metadataFlow
 import be.digitalia.mediasession2mqtt.mqtt.MQTTPublishClient
 import be.digitalia.mediasession2mqtt.mqtt.testConnection
+import be.digitalia.mediasession2mqtt.mqttmediaplayer.resolveArtworkJpeg
 import be.digitalia.mediasession2mqtt.settings.PreferenceKeys
 import be.digitalia.mediasession2mqtt.settings.SettingsProvider
 import dev.zacsweers.metro.Inject
@@ -36,6 +39,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.launch
 
 @SuppressLint("ExportedPreferenceActivity")
@@ -225,12 +229,28 @@ class SettingsActivity : PreferenceActivity() {
         super.onStop()
     }
 
+    @OptIn(ExperimentalCoroutinesApi::class)
     private fun setupStatus(coroutineScope: CoroutineScope) {
-        val statusPreference = findPreference(PreferenceKeys.STATUS)
+        val statusPreference = findPreference(PreferenceKeys.STATUS) as ArtworkStatusPreference
+
         coroutineScope.launch {
             statusSummary.collect {
                 statusPreference.summary = it
             }
+        }
+        coroutineScope.launch {
+            currentMediaControllerDetector.currentMediaController
+                .flatMapLatest { mediaController ->
+                    mediaController?.metadataFlow ?: flowOf(null)
+                }
+                .mapLatest { metadata ->
+                    resolveArtworkJpeg(metadata)
+                        .takeIf { it.isNotEmpty() }
+                        ?.let { BitmapFactory.decodeByteArray(it, 0, it.size) }
+                }
+                .collect { bitmap ->
+                    statusPreference.setArtwork(bitmap)
+                }
         }
     }
 }
