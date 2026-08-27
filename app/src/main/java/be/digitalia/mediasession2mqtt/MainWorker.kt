@@ -59,10 +59,16 @@ class MainWorker(
                 null -> flowOf(MQTTPlaybackState.Idle)
                 else -> mediaController.playbackStateFlow
                     .distinctUntilChanged { old, new ->
-                        // Only report playback state changes or drifting positions while playing
+                        // Report state changes, position changes while paused, or drifting positions while playing
                         val oldState = old?.state ?: PlaybackState.STATE_NONE
                         val newState = new?.state ?: PlaybackState.STATE_NONE
-                        oldState == newState && abs(getPlayingPositionDrift(old, new)) < POSITION_DRIFT_THRESHOLD_MILLIS
+                        if (oldState != newState) {
+                            false
+                        } else if (newState == PlaybackState.STATE_PLAYING) {
+                            abs(getPlayingPositionDrift(old, new)) < POSITION_DRIFT_THRESHOLD_MILLIS
+                        } else {
+                            old?.position == new?.position
+                        }
                     }
                     .mapNotNull { it?.toMQTTPlaybackStateOrNull() }
             }

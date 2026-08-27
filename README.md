@@ -132,6 +132,8 @@ The current playback position in milliseconds of the currently playing or paused
 In the `playing` state, the position won't be updated periodically: the difference between the current time and the playback position last update time must be added to this value to calculate the current playback position.
 When no media is currently playing or paused, the value is an empty string (`""`).
 
+When the active MediaSession is seeked, `playbackPosition` is published immediately with the new position, including while playback is paused.
+
 ### mediaSession/{deviceId}/applicationId
 
 The Android application id of the currently active MediaSession, or an empty String (`""`) if no MediaSession is currently active.
