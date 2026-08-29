@@ -11,12 +11,11 @@ import be.digitalia.mediasession2mqtt.mediasession.playbackStateFlow
 import be.digitalia.mediasession2mqtt.mqtt.MQTTPublishClient
 import be.digitalia.mediasession2mqtt.mqtt.MQTTQoSLevel
 import be.digitalia.mediasession2mqtt.mqtt.tryConnectAndPublish
+import be.digitalia.mediasession2mqtt.mqttmediaplayer.ArtworkRepository
 import be.digitalia.mediasession2mqtt.mqttmediaplayer.MQTTMediaMetadata
 import be.digitalia.mediasession2mqtt.mqttmediaplayer.MQTTPlaybackState
 import be.digitalia.mediasession2mqtt.mqttmediaplayer.getPlayingPositionDrift
-import be.digitalia.mediasession2mqtt.mqttmediaplayer.resolveArtworkJpeg
 import be.digitalia.mediasession2mqtt.mqttmediaplayer.toMQTTPlaybackStateOrNull
-import be.digitalia.mediasession2mqtt.mqttmediaplayer.toArtworkCacheKey
 import be.digitalia.mediasession2mqtt.mqttmediaplayer.toMediaDurationInMillis
 import be.digitalia.mediasession2mqtt.mqttmediaplayer.toMediaTitle
 import be.digitalia.mediasession2mqtt.service.MediaSessionListenerService
@@ -33,12 +32,11 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.buffer
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.distinctUntilChangedBy
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.fold
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.launch
 import kotlin.math.abs
@@ -48,7 +46,8 @@ class MainWorker(
     private val context: Context,
     private val currentMediaControllerDetector: CurrentMediaControllerDetector,
     private val settingsProvider: SettingsProvider,
-    private val mqttClientFactory: MQTTPublishClient.Factory
+    private val mqttClientFactory: MQTTPublishClient.Factory,
+    private val artworkRepository: ArtworkRepository
 ) {
     private val coroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
@@ -84,26 +83,6 @@ class MainWorker(
                             title = it.toMediaTitle(),
                             durationInMillis = it.toMediaDurationInMillis()
                         )
-                    }
-            }
-        }.buffer(Channel.RENDEZVOUS)
-
-    @OptIn(ExperimentalCoroutinesApi::class)
-    private val mediaArtworkFlow: Flow<ByteArray> =
-        currentMediaControllerDetector.currentMediaController.flatMapLatest { mediaController ->
-            when (mediaController) {
-                null -> flowOf(ByteArray(0))
-                else -> mediaController.metadataFlow
-                    .map { metadata ->
-                        Triple(
-                            mediaController.packageName,
-                            metadata.toArtworkCacheKey(mediaController.packageName),
-                            metadata
-                        )
-                    }
-                    .distinctUntilChangedBy { (_, cacheKey, _) -> cacheKey }
-                    .mapLatest { (_, _, metadata) ->
-                        resolveArtworkJpeg(metadata)
                     }
             }
         }.buffer(Channel.RENDEZVOUS)
@@ -233,15 +212,12 @@ class MainWorker(
         qosLevel: MQTTQoSLevel,
         deviceId: Int
     ) {
-        mediaArtworkFlow.fold(null as ByteArray?) { previousArtwork, artwork ->
-            if (previousArtwork == null || !previousArtwork.contentEquals(artwork)) {
-                client.tryConnectAndPublish(
-                    qosLevel,
-                    "$ROOT_TOPIC/$deviceId/$MEDIA_ARTWORK_SUB_TOPIC",
-                    artwork
-                )
-            }
-            artwork
+        artworkRepository.artwork.filterNotNull().collect { artwork ->
+            client.tryConnectAndPublish(
+                qosLevel,
+                "$ROOT_TOPIC/$deviceId/$MEDIA_ARTWORK_SUB_TOPIC",
+                artwork
+            )
         }
     }
 

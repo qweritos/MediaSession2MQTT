@@ -6,97 +6,98 @@ import android.media.MediaMetadata
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
+import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URI
 
-private const val MAX_ARTWORK_DIMENSION = 800
 private const val MAX_DOWNLOAD_BYTES = 5 * 1024 * 1024
 private const val CONNECT_TIMEOUT_MILLIS = 10_000
 private const val READ_TIMEOUT_MILLIS = 10_000
 
+private val ARTWORK_BITMAP_KEYS = arrayOf(
+    MediaMetadata.METADATA_KEY_DISPLAY_ICON,
+    MediaMetadata.METADATA_KEY_ART,
+    MediaMetadata.METADATA_KEY_ALBUM_ART
+)
+
+private val ARTWORK_URI_KEYS = arrayOf(
+    MediaMetadata.METADATA_KEY_DISPLAY_ICON_URI,
+    MediaMetadata.METADATA_KEY_ART_URI,
+    MediaMetadata.METADATA_KEY_ALBUM_ART_URI
+)
+
+sealed interface ArtworkSource {
+    data object None : ArtworkSource
+    data class BitmapValue(val value: Bitmap) : ArtworkSource
+    data class Url(val value: URI) : ArtworkSource
+}
+
 /**
- * Build a cheap key that changes whenever the current media or its advertised artwork changes.
+ * Select the preferred artwork before using it as the cache key.
  */
-fun MediaMetadata?.toArtworkCacheKey(packageName: String): String {
+fun MediaMetadata?.toArtworkSource(): ArtworkSource {
     if (this == null) {
-        return packageName
+        return ArtworkSource.None
     }
-    return listOf(
-        packageName,
-        getString(MediaMetadata.METADATA_KEY_MEDIA_ID).orEmpty(),
-        getString(MediaMetadata.METADATA_KEY_TITLE).orEmpty(),
-        getString(MediaMetadata.METADATA_KEY_DISPLAY_TITLE).orEmpty(),
-        getString(MediaMetadata.METADATA_KEY_ARTIST).orEmpty(),
-        getString(MediaMetadata.METADATA_KEY_ALBUM).orEmpty(),
-        getString(MediaMetadata.METADATA_KEY_ALBUM_ART_URI).orEmpty(),
-        getString(MediaMetadata.METADATA_KEY_ART_URI).orEmpty(),
-        getString(MediaMetadata.METADATA_KEY_DISPLAY_ICON_URI).orEmpty()
-    ).joinToString("\u0000")
+
+    return ARTWORK_BITMAP_KEYS.firstNotNullOfOrNull { key ->
+        getBitmap(key)?.let { ArtworkSource.BitmapValue(it) }
+    } ?: ARTWORK_URI_KEYS.firstNotNullOfOrNull { key ->
+        getString(key)?.let { value ->
+            runCatching { URI(value) }.getOrNull()?.takeIf { uri ->
+                uri.host != null && (
+                    uri.scheme.equals("http", ignoreCase = true) ||
+                        uri.scheme.equals("https", ignoreCase = true)
+                    )
+            }
+        }?.let { ArtworkSource.Url(it) }
+    } ?: ArtworkSource.None
 }
 
 /**
- * Resolve the current MediaSession artwork and normalize it to JPEG bytes.
+ * Resolve the selected MediaSession artwork and encode it as lossless PNG bytes.
  */
-suspend fun resolveArtworkJpeg(metadata: MediaMetadata?): ByteArray =
+suspend fun resolveArtworkPng(source: ArtworkSource): ByteArray =
     withContext(Dispatchers.IO) {
-        if (metadata == null) {
-            return@withContext ByteArray(0)
+        when (source) {
+            ArtworkSource.None -> ByteArray(0)
+            is ArtworkSource.BitmapValue -> source.value.toPng()
+            is ArtworkSource.Url -> downloadBitmap(source.value)?.let { bitmap ->
+                try {
+                    bitmap.toPng()
+                } finally {
+                    bitmap.recycle()
+                }
+            } ?: ByteArray(0)
         }
-
-        metadata.firstArtworkBitmap()?.let { bitmap ->
-            return@withContext bitmap.toJpeg()
-        }
-
-        metadata.firstArtworkUri()?.let { uri ->
-            downloadBitmap(uri)?.let { bitmap ->
-                return@withContext bitmap.toJpeg()
-            }
-        }
-
-        ByteArray(0)
     }
 
-private fun MediaMetadata.firstArtworkBitmap(): Bitmap? {
-    return runCatching { getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART) }.getOrNull()
-        ?: runCatching { getBitmap(MediaMetadata.METADATA_KEY_ART) }.getOrNull()
-        ?: runCatching { getBitmap(MediaMetadata.METADATA_KEY_DISPLAY_ICON) }.getOrNull()
-}
-
-private fun MediaMetadata.firstArtworkUri(): String? {
-    return sequenceOf(
-        MediaMetadata.METADATA_KEY_ALBUM_ART_URI,
-        MediaMetadata.METADATA_KEY_ART_URI,
-        MediaMetadata.METADATA_KEY_DISPLAY_ICON_URI
-    ).mapNotNull { key -> getString(key) }
-        .firstOrNull { value ->
-            runCatching {
-                val scheme = URI(value).scheme
-                scheme == "https" || scheme == "http"
-            }.getOrDefault(false)
-        }
-}
-
-private fun downloadBitmap(url: String): Bitmap? {
-    val bytes = httpGet(url) ?: return null
+private suspend fun downloadBitmap(uri: URI): Bitmap? {
+    val bytes = httpGet(uri) ?: return null
     return BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
 }
 
-private fun httpGet(url: String): ByteArray? {
-    val connection = (URI(url).toURL().openConnection() as? HttpURLConnection) ?: return null
+private suspend fun httpGet(uri: URI): ByteArray? {
+    val connection = try {
+        uri.toURL().openConnection() as? HttpURLConnection
+    } catch (_: IOException) {
+        null
+    } ?: return null
+
     return try {
         connection.connectTimeout = CONNECT_TIMEOUT_MILLIS
         connection.readTimeout = READ_TIMEOUT_MILLIS
         connection.instanceFollowRedirects = true
+        connection.useCaches = true
         connection.setRequestProperty("User-Agent", "MediaSession2MQTT")
         connection.connect()
-        if (connection.responseCode !in 200..299) {
+
+        if (connection.responseCode !in 200..299 ||
+            connection.contentLength > MAX_DOWNLOAD_BYTES
+        ) {
             return null
         }
-        connection.contentLengthLong.takeIf { it >= 0 }?.let { contentLength ->
-            if (contentLength > MAX_DOWNLOAD_BYTES) {
-                return null
-            }
-        }
+
         connection.inputStream.use { input ->
             val output = ByteArrayOutputStream()
             val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
@@ -114,31 +115,18 @@ private fun httpGet(url: String): ByteArray? {
             }
             output.toByteArray()
         }
-    } catch (_: Exception) {
+    } catch (_: IOException) {
         null
     } finally {
         connection.disconnect()
     }
 }
 
-private fun Bitmap.toJpeg(): ByteArray {
-    val normalized = if (width <= MAX_ARTWORK_DIMENSION && height <= MAX_ARTWORK_DIMENSION) {
-        this
-    } else {
-        val scale = MAX_ARTWORK_DIMENSION.toFloat() / maxOf(width, height)
-        Bitmap.createScaledBitmap(
-            this,
-            (width * scale).toInt().coerceAtLeast(1),
-            (height * scale).toInt().coerceAtLeast(1),
-            true
-        )
-    }
-
-    return ByteArrayOutputStream().use { output ->
-        normalized.compress(Bitmap.CompressFormat.JPEG, 90, output)
-        if (normalized !== this) {
-            normalized.recycle()
+private fun Bitmap.toPng(): ByteArray =
+    ByteArrayOutputStream().use { output ->
+        if (compress(Bitmap.CompressFormat.PNG, 100, output)) {
+            output.toByteArray()
+        } else {
+            ByteArray(0)
         }
-        output.toByteArray()
     }
-}

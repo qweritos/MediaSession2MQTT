@@ -71,7 +71,7 @@ private fun JsonWriter.writeImage(
     name("image_topic")
     value(imageTopic)
     name("content_type")
-    value("image/jpeg")
+    value("image/png")
     name("device")
     writeDeviceInfo(deviceId)
 

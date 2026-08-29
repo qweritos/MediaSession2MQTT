@@ -16,10 +16,9 @@ import be.digitalia.mediasession2mqtt.BuildConfig
 import be.digitalia.mediasession2mqtt.R
 import be.digitalia.mediasession2mqtt.inject.appGraph
 import be.digitalia.mediasession2mqtt.mediasession.CurrentMediaControllerDetector
-import be.digitalia.mediasession2mqtt.mediasession.metadataFlow
 import be.digitalia.mediasession2mqtt.mqtt.MQTTPublishClient
 import be.digitalia.mediasession2mqtt.mqtt.testConnection
-import be.digitalia.mediasession2mqtt.mqttmediaplayer.resolveArtworkJpeg
+import be.digitalia.mediasession2mqtt.mqttmediaplayer.ArtworkRepository
 import be.digitalia.mediasession2mqtt.settings.PreferenceKeys
 import be.digitalia.mediasession2mqtt.settings.SettingsProvider
 import dev.zacsweers.metro.Inject
@@ -32,12 +31,13 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.buffer
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @SuppressLint("ExportedPreferenceActivity")
 class SettingsActivity : PreferenceActivity() {
@@ -48,6 +48,8 @@ class SettingsActivity : PreferenceActivity() {
     private lateinit var mqttClientFactory: MQTTPublishClient.Factory
     @Inject
     private lateinit var currentMediaControllerDetector: CurrentMediaControllerDetector
+    @Inject
+    private lateinit var artworkRepository: ArtworkRepository
 
     @OptIn(ExperimentalCoroutinesApi::class)
     private val statusSummary: Flow<CharSequence> by lazy(LazyThreadSafetyMode.NONE) {
@@ -202,18 +204,14 @@ class SettingsActivity : PreferenceActivity() {
             }
         }
         coroutineScope.launch {
-            currentMediaControllerDetector.currentMediaController
-                .flatMapLatest { mediaController ->
-                    mediaController?.metadataFlow ?: flowOf(null)
-                }
-                .mapLatest { metadata ->
-                    resolveArtworkJpeg(metadata)
-                        .takeIf { it.isNotEmpty() }
+            artworkRepository.artwork.collectLatest { artwork ->
+                val bitmap = withContext(Dispatchers.Default) {
+                    artwork
+                        ?.takeIf { it.isNotEmpty() }
                         ?.let { BitmapFactory.decodeByteArray(it, 0, it.size) }
                 }
-                .collect { bitmap ->
-                    statusPreference.setArtwork(bitmap)
-                }
+                statusPreference.setArtwork(bitmap)
+            }
         }
     }
 }

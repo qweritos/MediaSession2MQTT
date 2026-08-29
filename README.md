@@ -157,9 +157,9 @@ The duration of the currently playing or paused media in milliseconds, or an emp
 
 ### mediaSession/{deviceId}/mediaArtwork
 
-The artwork of the currently playing media as raw JPEG bytes. The payload is retained and is suitable for Home Assistant's MQTT `image` integration. When Home Assistant integration is enabled, a `Media Artwork` image entity is created automatically through MQTT discovery.
+The artwork of the currently playing media as raw PNG bytes. The payload is retained and is suitable for Home Assistant's MQTT `image` integration. When Home Assistant integration is enabled, a `Media Artwork` image entity is created automatically through MQTT discovery.
 
-The app first uses artwork supplied directly by the active Android MediaSession. If an application only exposes an HTTP(S) artwork URI, it downloads and normalizes that image to JPEG before publishing it.
+The app first uses artwork supplied directly by the active Android MediaSession. If an application only exposes an HTTP(S) artwork URI, it downloads and encodes that image as PNG at its original dimensions before publishing it.
 
 ## A note about the Netflix app
 
