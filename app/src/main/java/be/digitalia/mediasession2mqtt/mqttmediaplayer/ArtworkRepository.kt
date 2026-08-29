@@ -24,6 +24,11 @@ import kotlinx.coroutines.flow.stateIn
 import java.io.File
 import java.io.IOException
 
+private data class ArtworkRequest(
+    val source: ArtworkSource,
+    val cacheKey: String
+)
+
 @Inject
 @SingleIn(AppScope::class)
 class ArtworkRepository(
@@ -39,11 +44,23 @@ class ArtworkRepository(
     @OptIn(ExperimentalCoroutinesApi::class)
     val artwork: StateFlow<ByteArray?> =
         currentMediaControllerDetector.currentMediaController.flatMapLatest { mediaController ->
-            mediaController?.metadataFlow ?: flowOf(null)
+            when (mediaController) {
+                null -> flowOf(
+                    ArtworkRequest(
+                        source = ArtworkSource.None,
+                        cacheKey = ""
+                    )
+                )
+                else -> mediaController.metadataFlow.map { metadata ->
+                    ArtworkRequest(
+                        source = metadata.toArtworkSource(),
+                        cacheKey = metadata.toArtworkCacheKey(mediaController.packageName)
+                    )
+                }
+            }
         }
-            .map { metadata -> metadata.toArtworkSource() }
             .distinctUntilChanged()
-            .mapLatest { source -> resolveArtworkPng(source) }
+            .mapLatest { request -> resolveArtworkPng(request.source) }
             .buffer(Channel.RENDEZVOUS)
             .distinctUntilChanged { previous, current -> previous.contentEquals(current) }
             .stateIn(

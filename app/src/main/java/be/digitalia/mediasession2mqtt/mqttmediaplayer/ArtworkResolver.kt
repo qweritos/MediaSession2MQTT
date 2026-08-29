@@ -33,7 +33,24 @@ sealed interface ArtworkSource {
 }
 
 /**
- * Select the preferred artwork before using it as the cache key.
+ * Build a cheap key that changes whenever the current media changes.
+ */
+fun MediaMetadata?.toArtworkCacheKey(packageName: String): String {
+    if (this == null) {
+        return packageName
+    }
+    return listOf(
+        packageName,
+        getString(MediaMetadata.METADATA_KEY_MEDIA_ID).orEmpty(),
+        getString(MediaMetadata.METADATA_KEY_TITLE).orEmpty(),
+        getString(MediaMetadata.METADATA_KEY_DISPLAY_TITLE).orEmpty(),
+        getString(MediaMetadata.METADATA_KEY_ARTIST).orEmpty(),
+        getString(MediaMetadata.METADATA_KEY_ALBUM).orEmpty()
+    ).joinToString("\u0000")
+}
+
+/**
+ * Select the preferred artwork source.
  */
 fun MediaMetadata?.toArtworkSource(): ArtworkSource {
     if (this == null) {
